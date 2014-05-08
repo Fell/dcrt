@@ -13,7 +13,7 @@
  *   that folder.
  *
  * @author Felix Urbasik
- * @version 0.1
+ * @version 0.2
  * @link https://github.com/Fell/dcrt
  * @license Creative Commons Attribution-ShareAlike 4.0 International License
  *
@@ -21,122 +21,204 @@
  * To view a copy of this license, visit http://creativecommons.org/licenses/by-sa/4.0/.
  */
 
+define("MODE_STATUS_ONLY", 0);
+define("MODE_KEEP_LATEST", 1);
 
 /**
- * Prints out the usage message.
+ * Class DCRT
  */
-function usage()
+class DCRT
 {
-    echo "\nUsage: php dcrt.php <command> [path]\n\n";
-    echo "Commands:\n";
-    echo "  status\tDisplay a list of all conflicted files (read-only)\n";
-    echo "  process\tStart the automatic conflict resolving process (be careful!)\n";
-    exit;
+    private $regex = array(
+        'de' => '/^(\S*)\ \(.*\bin Konflikt stehende Kopie\b.*\)(\.(.+))?$/i',
+        'en' => '/^(\S*)\ \(.*\b\'s conflicted copy\b.*\)(\.(.+))?$/i',
+    );
+
+    // Settings
+    private $lang = 'de';
+    private $path = '.';
+    private $mode;
+
+    /**
+     * The constructor. Acts as entry-point and controls the program sequence
+     * @param $argv Command-line arguments
+     */
+    public function __construct($argv)
+    {
+        echo "\n=== Dropbox Conflict Resolving Tool v0.1 ===\n\n";
+
+        // Load the command line
+        $data = $this->cmdline($argv);
+        foreach($data as $key => $val)
+            $this->$key = $val;
+
+        switch($this->mode)
+        {
+            default:
+            case MODE_STATUS_ONLY: echo "Searching for conflicted files (this may take a while)...\n\n"; break;
+            case MODE_KEEP_LATEST: echo "Resolving conflicts by keeping the latest version...\n\n"; break;
+        }
+
+        $this->process($this->path, $this->mode);
+    }
+
+
+    /**
+     * Processes the command line and provides an array containing the data
+     * @param $argv The command-line arguments
+     * @return array
+     */
+    private function cmdline($argv)
+    {
+        $result = array();
+
+        $argc = count($argv);
+        for($i = 0;$i < $argc;$i++)
+        {
+            switch($argv[$i])
+            {
+                case "-L":
+                    if($i + 1 <= $argc - 1)
+                    {
+                        $i++;
+                        if(in_array(strtolower($argv[$i]), array('de','en')))
+                            $result['lang'] = $argv[$i];
+                        else
+                            $this->usage();
+                    }
+                    else
+                        $this->usage();
+                    break;
+                case "status":
+                    if(!isset($result['mode']))
+                        $result['mode'] = MODE_STATUS_ONLY;
+                    else
+                        $this->usage();
+                    break;
+                case "resolve":
+                    if(!isset($result['mode']))
+                        $result['mode'] = MODE_KEEP_LATEST;
+                    else
+                        $this->usage();
+                    break;
+                default:
+                    if(is_dir($argv[$i]))
+                        $result['path'] = $argv[$i];
+                    break;
+            }
+        }
+
+        // We need at least a mode
+        if(!isset($result['mode']))
+            $this->usage();
+
+        return $result;
+    }
+
+    /**
+     * Prints out the usage message.
+     */
+    private function usage()
+    {
+        echo "Usage: php dcrt.php <command> [path]\n\n";
+        echo "Commands:\n";
+        echo "  status\tDisplay a list of all conflicted files (read-only)\n";
+        echo "  resolve\tStart the automatic conflict resolving process (be careful!)\n";
+        exit;
+    }
+
+    /**
+     * Utility function that shortens a path to be displayed in the console without line-breaks.
+     * @param $path The path
+     * @param $file The filename
+     * @return string Shortened path including filename
+     */
+    private function shorten_path($path, $file)
+    {
+        $path = str_replace('\\', '/', $path);
+        $flen = strlen($file);
+
+        $res = (strlen($path)>64-$flen) ? substr($path, 0, 64-$flen)."..." : $path;
+        return $res.'/'.$file;
+    }
+
+    /**
+     * Starts the automatic conflict resolving procedure for a given path in a given mode. (see mode defines above)
+     * @param $path The path
+     * @param $mode The mode
+     */
+    private function process($path, $mode)
+    {
+        $dir = opendir($path);
+
+        while($file = readdir($dir))
+        {
+            if(in_array($file, array('.','..')))
+                continue;
+
+            if(is_dir($path.'/'.$file))
+                $this->process($path.'/'.$file, $mode);
+
+            else if(is_file($path.'/'.$file))
+            {
+                if($orig = preg_filter($this->regex[$this->lang],'$1.$3', $file))
+                {
+                    // Check if original file exists
+                    if(!file_exists($path.'/'.$orig))
+                        echo "  [ERROR] Original file ".$orig." could not be found!\n";
+
+                    // Strip trailing dot if the file has no extension
+                    if($orig[strlen($orig)-1] == '.')
+                        $orig = substr($orig, 0, strlen($orig)-1);
+
+                    // Resolve the conflict
+                    switch($mode)
+                    {
+                        default:
+                        case MODE_STATUS_ONLY: $this->res_status_only($path, $file, $orig); break;
+                        case MODE_KEEP_LATEST: $this->res_keep_latest($path, $file, $orig); break;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Prints the given conflict out.
+     * @param $path
+     * @param $conflict
+     * @param $original
+     */
+    private function res_status_only($path, $conflict, $original)
+    {
+        echo "[CONFLICT] ".$this->shorten_path($path, $original)."\n";
+    }
+
+    /**
+     * Resolves a conflict using the KEEP_LATEST method.
+     * @param $path
+     * @param $conflict
+     * @param $original
+     */
+    private function res_keep_latest($path, $conflict, $original)
+    {
+        $time_conf = filemtime($path.'/'.$conflict);
+        $time_orig = filemtime($path.'/'.$original);
+
+        if($time_conf > $time_orig)
+        {
+            //echo "Conflicted is newer!\n";
+            echo "[REPLACE] ".$this->shorten_path($path, $original)."\n";
+            unlink($path.'/'.$original); // Delete original
+            rename($path.'/'.$conflict, $path.'/'.$original); // Rename newer file
+        }
+        else
+        {
+            //echo "Original is newer!\n";
+            echo "   [KEEP] ".$this->shorten_path($path, $original)."\n";
+            unlink($path.'/'.$conflict); // Delete conflicted file -> keep original
+        }
+    }
 }
 
-/**
- * Lists all conflicted files under a given path.
- * @param $path
- */
-function status($path) 
-{
-	$dir = opendir($path);
-	
-	while($file = readdir($dir))
-	{
-		if(in_array($file, array('.','..')))
-			continue;
-		
-		if(is_dir($path.'/'.$file))
-			status($path.'/'.$file);
-			
-		else if(is_file($path.'/'.$file))
-		{
-			if($orig = preg_filter('/^(\S*)\ .*\bin Konflikt stehende Kopie\b.*\.(.*)$/i','$1.$2', $file))
-			{
-				echo "[CONFLICT] ".$orig."\n";
-			}
-		}
-	}
-}
-
-/**
- * Starts the automatic conflict resolving for a given path.
- * @param $path
- */
-function process($path) 
-{
-	$dir = opendir($path);
-	
-	while($file = readdir($dir))
-	{
-		if(in_array($file, array('.','..')))
-			continue;
-		
-		if(is_dir($path.'/'.$file))
-			process($path.'/'.$file);
-			
-		else if(is_file($path.'/'.$file))
-		{
-			if($orig = preg_filter('/^(\S*)\ .*\bin Konflikt stehende Kopie\b.*\.(.*)$/i','$1.$2', $file))
-			{
-				if(!file_exists($path.'/'.$orig))
-					echo "  [ERROR] Original file ".$orig." could not be found!\n";
-							
-				$time_conf = filemtime($path.'/'.$file);
-				$time_orig = filemtime($path.'/'.$orig);
-				
-				if($time_conf > $time_orig)
-				{
-					//echo "Conflicted is newer!\n";
-					echo "[REPLACE] ".$orig."\n";
-					unlink($path.'/'.$orig); // Delete original
-					rename($path.'/'.$file, $path.'/'.$orig); // Rename newer file
-				}
-				else
-				{
-					//echo "Original is newer!\n";
-					echo "   [KEEP] ".$orig."\n";
-					unlink($path.'/'.$file); // Delete conflicted file -> keep original				
-				}
-			}
-		}
-	}
-}
-
-/* -------------------------------------------------------------------------- */
-/* ENTRY POINT */
-
-echo "\n=== Dropbox Conflict Resolving Tool v0.1 ===\n";
-
-if(!isset($argv[1]))
-{
-    usage();
-}
-
-$path = ".";
-
-if(isset($argv[2]))
-	$path = $argv[2];
-
-switch($argv[1])
-{
-case "status":
-	echo "\nSearching for conflicted files in ".$path."\n\n";
-	status($path);
-	break;
-case "process":
-	echo "\nResolving conflicts in ".$path."\n\n";
-	echo "Method: KEEP_LATEST\n\n";
-	process($path);
-	break;
-case "--help":
-case "/?":
-case "help":
-default:
-    usage();
-    break;
-}
-
-
-?>
+$dcrt = new DCRT($argv);

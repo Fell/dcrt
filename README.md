@@ -17,5 +17,5 @@ Usage: php conflict.php <command> [path]
 
 Commands:
   status        Display a list of all conflicted files (read-only)
-  process       Start the automatic conflict resolving process (be careful!)
+  resolve       Start the automatic conflict resolving process (be careful!)
 ```
