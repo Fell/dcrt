@@ -35,9 +35,10 @@ class DCRT
     );
 
     // Settings
+    private $mode;
     private $lang = 'de';
     private $path = '.';
-    private $mode;
+    private $shorten = false;
 
     /**
      * The constructor. Acts as entry-point and controls the program sequence
@@ -77,7 +78,7 @@ class DCRT
         {
             switch($argv[$i])
             {
-                case "-L":
+                case "-l":
                     if($i + 1 <= $argc - 1)
                     {
                         $i++;
@@ -88,6 +89,9 @@ class DCRT
                     }
                     else
                         $this->usage();
+                    break;
+                case "-s":
+                    $this->shorten = true;
                     break;
                 case "status":
                     if(!isset($result['mode']))
@@ -120,26 +124,49 @@ class DCRT
      */
     private function usage()
     {
-        echo "Usage: php dcrt.php <command> [path]\n\n";
+        echo "Usage: php dcrt.php [-l en|de] [-s] <command> [path]\n\n";
         echo "Commands:\n";
         echo "  status\tDisplay a list of all conflicted files (read-only)\n";
-        echo "  resolve\tStart the automatic conflict resolving process (be careful!)\n";
+        echo "  resolve\tStart the automatic conflict resolving process (be careful!)\n\n";
+        echo "Arguments:\n";
+        echo "  -l en|de\tSets the language of the conflicted files. Currently\n\t\t'de' and 'en' are supported. Default is: de \n";
+        echo "  -s \t\tShortens the output for an 80 characters wide terminal.";
         exit;
+    }
+
+    /**
+     * Utility function that formats a path to be displayed in the console.
+     * @param $path The path
+     * @param $file The filename
+     * @return string Shortened path with filename
+     */
+    private function format_path($path, $file)
+    {
+        // Use consistent slashes
+        if(DIRECTORY_SEPARATOR == '/')
+            $path = str_replace('\\', '/', $path);
+        else if(DIRECTORY_SEPARATOR == '\\')
+            $path = str_replace('/', '\\', $path);
+
+        if($this->shorten)
+        {
+            $path = $this->shorten_path($path, $file);
+        }
+
+        return $path.DIRECTORY_SEPARATOR.$file;
     }
 
     /**
      * Utility function that shortens a path to be displayed in the console without line-breaks.
      * @param $path The path
-     * @param $file The filename
-     * @return string Shortened path including filename
+     * @param $file The filename (needed for witdh calculation)
+     * @return string Shortened path
      */
     private function shorten_path($path, $file)
     {
-        $path = str_replace('\\', '/', $path);
         $flen = strlen($file);
-
         $res = (strlen($path)>64-$flen) ? substr($path, 0, 64-$flen)."..." : $path;
-        return $res.'/'.$file;
+        return $res;
     }
 
     /**
@@ -191,7 +218,7 @@ class DCRT
      */
     private function res_status_only($path, $conflict, $original)
     {
-        echo "[CONFLICT] ".$this->shorten_path($path, $original)."\n";
+        echo "[CONFLICT] ".$this->format_path($path, $original)."\n";
     }
 
     /**
@@ -208,14 +235,14 @@ class DCRT
         if($time_conf > $time_orig)
         {
             //echo "Conflicted is newer!\n";
-            echo "[REPLACE] ".$this->shorten_path($path, $original)."\n";
+            echo "[REPLACE] ".$this->format_path($path, $original)."\n";
             unlink($path.'/'.$original); // Delete original
             rename($path.'/'.$conflict, $path.'/'.$original); // Rename newer file
         }
         else
         {
             //echo "Original is newer!\n";
-            echo "   [KEEP] ".$this->shorten_path($path, $original)."\n";
+            echo "   [KEEP] ".$this->format_path($path, $original)."\n";
             unlink($path.'/'.$conflict); // Delete conflicted file -> keep original
         }
     }
