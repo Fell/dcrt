@@ -13,9 +13,14 @@ This PHP script allows you to scan for conflicted files in your Dropbox folder a
 ## Usage
 
 ```
-Usage: php conflict.php <command> [path]
+Usage: php dcrt.php [-l en|de] [-s] <command> [path]
 
 Commands:
   status        Display a list of all conflicted files (read-only)
   resolve       Start the automatic conflict resolving process (be careful!)
+
+Arguments:
+  -l en|de      Sets the language of the conflicted files. Currently
+                'de' and 'en' are supported. Default is: de
+  -s            Shortens the output for an 80 characters wide terminal.
 ```
